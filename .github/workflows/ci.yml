@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Verify generated pages are current
+        run: |
+          python tools/gen_pages.py
+          git diff --exit-code
+
+      - name: Run browser end-to-end checks
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 \
+            >/tmp/ishetalafgelast-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:8765/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          CHROME="$(node -e "console.log(require('playwright').chromium.executablePath())")" \
+            BASE=http://127.0.0.1:8765 node tools/e2e.cjs
+
+      - name: Build and smoke-test container
+        run: |
+          docker build --tag ishetalafgelast:test .
+          node tools/container-smoke.mjs

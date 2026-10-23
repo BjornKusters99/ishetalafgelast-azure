@@ -1,0 +1,18 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+node_modules/
+.azure/
+
+# Logs
+*.log
+
+# Windows/WSL metadata rommel
+*Zone.Identifier

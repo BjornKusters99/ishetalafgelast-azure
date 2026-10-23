@@ -1,0 +1,68 @@
+name: Deploy test environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type deploy-test to publish a public test URL
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'deploy-test'
+    runs-on: ubuntu-latest
+    environment: azure-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push immutable image
+        env:
+          ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          set -euo pipefail
+          az acr login --name "$ACR_NAME"
+          image="$ACR_NAME.azurecr.io/ishetalafgelast:${GITHUB_SHA}"
+          docker build --tag "$image" .
+          docker push "$image"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+
+      - name: Update test Container App
+        env:
+          APP_NAME: ${{ vars.AZURE_CONTAINER_APP }}
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          set -euo pipefail
+          az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE" \
+            --output none
+
+      - name: Smoke-test public test URL
+        env:
+          APP_NAME: ${{ vars.AZURE_CONTAINER_APP }}
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          set -euo pipefail
+          fqdn=$(az containerapp show \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+          curl --fail --retry 10 --retry-delay 5 \
+            "https://$fqdn/healthz"
+          curl --fail "https://$fqdn/" | grep -q 'IsHetAlAfgelast.nl'
+          echo "Test URL: https://$fqdn"

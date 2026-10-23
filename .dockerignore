@@ -1,0 +1,15 @@
+.git
+.github
+.vscode
+art
+docs
+infra
+node_modules
+scripts
+tools
+*.drawio
+Dockerfile
+README.md
+HANDOVER.md
+package-lock.json
+package.json
